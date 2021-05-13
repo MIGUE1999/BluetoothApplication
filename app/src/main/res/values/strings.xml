@@ -2,12 +2,13 @@
     <string name="app_name">BluetoothApplication</string>
     <string name="edit_message">Enter a message</string>
     <string name="button_send">Send</string>
-    <string name="button_busca_dispositivos">Busqueda dispositivos</string>
+    <string name="button_busca_dispositivos">Visible</string>
     <string name="titulo1">HOLA</string>
     <string name="button_bl_on">Activar Bluetooth</string>
     <string name="button_bl_off">Desactivar Bluetooth</string>
     <string name="bl_image_description">Muestra una imagen distinta dependiendo de si el bluetooth esta acivado o desactivado</string>
     <string name="button_paired">Dispositivos Emparejados</string>
+    <string name="button_detecta_dispositivos">Busqueda dispositivos</string>
 
 
 
