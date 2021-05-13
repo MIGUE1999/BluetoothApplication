@@ -18,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -29,7 +30,7 @@ import java.util.ArrayList;
 import java.util.Set;
 
 
-public class MainActivity extends Activity implements View.OnClickListener{
+public class MainActivity extends Activity implements View.OnClickListener {
 
     private static final String TAG = "MainActivity";
     private static final int REQUEST_ENABLE_BT = 0;
@@ -42,7 +43,6 @@ public class MainActivity extends Activity implements View.OnClickListener{
     public ArrayList<BluetoothDevice> dispositivosEncontrados;
     public BluetoothDeviceArrayAdapter mDeviceListAdapter;
     ListView lvDispositivosEncontrados;
-    private boolean state = false;
 
 
     BluetoothAdapter mBlueAdapter;
@@ -64,11 +64,34 @@ public class MainActivity extends Activity implements View.OnClickListener{
         lvDispositivosEncontrados = findViewById(R.id.lvNewDevices);
         dispositivosEncontrados = new ArrayList<>();
 
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            state  = true;
-        }
+
+
+        //Funcion para que al clickar en un item del lvDispositivosEncontrados coja el nombre y la direccion de ese dispositivo seleccionado
+        lvDispositivosEncontrados.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                //first cancel discovery because its very memory intensive.
+                mBlueAdapter.cancelDiscovery();
+
+                Log.d(TAG, "onItemClick: You Clicked on a device.");
+                String deviceName = dispositivosEncontrados.get(position).getName();
+                String deviceAddress = dispositivosEncontrados.get(position).getAddress();
+
+                Log.d(TAG, "onItemClick: deviceName = " + deviceName);
+                Log.d(TAG, "onItemClick: deviceAddress = " + deviceAddress);
+
+                //create the bond.
+                //NOTE: Requires API 17+? I think this is JellyBean
+                if(Build.VERSION.SDK_INT > Build.VERSION_CODES.JELLY_BEAN_MR2){
+                    Log.d(TAG, "Trying to pair with " + deviceName);
+                    dispositivosEncontrados.get(position).createBond();
+                }
+            }
+        });
+
+        //Broadcasts when bond state changes (ie:pairing)
+        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+        registerReceiver(mBroadcastReceiver4, filter);
 
         //habilito los botones para que una vez sean clickados hagan su funcion asociada
         mOnBtn.setOnClickListener(this);
@@ -76,6 +99,9 @@ public class MainActivity extends Activity implements View.OnClickListener{
         mPairedBtn.setOnClickListener(this);
         mDiscoverBtn.setOnClickListener(this);
         mDetectaBtn.setOnClickListener(this);
+        //lvDispositivosEncontrados.setOnItemClickListener((AdapterView.OnItemClickListener) MainActivity.this);
+
+
 
         //Habilitar bluetooth desde la app
         mBlueAdapter = BluetoothAdapter.getDefaultAdapter();
@@ -86,17 +112,20 @@ public class MainActivity extends Activity implements View.OnClickListener{
         //coloco la imagen dependiendo del estado del bluetooth(on/off)
         muestraImagenBluetooth();
 
-        //registrarEventosBluetooth();
 
 
     }
+
+
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         unregisterReceiver(mBroadcastReceiver1);
         unregisterReceiver(mBroadcastReceiver2);
-        //mBlueAdapter.cancelDiscovery();
+        unregisterReceiver(mBroadcastReceiver3);
+        unregisterReceiver(mBroadcastReceiver4);
+        mBlueAdapter.cancelDiscovery();
     }
 
     @Override
@@ -136,6 +165,10 @@ public class MainActivity extends Activity implements View.OnClickListener{
                     case BluetoothAdapter.STATE_OFF:
                         mBLueIv.setImageResource(R.drawable.ic_action_off);
                         Log.d(TAG, "onReceive: STATE OFF");
+                        //limpia la lista de dispositivos encontrados
+                        mDeviceListAdapter.clear();
+                        lvDispositivosEncontrados.setAdapter(mDeviceListAdapter);
+                        lvDispositivosEncontrados.deferNotifyDataSetChanged();
                         break;
                     // Encendido
                     case BluetoothAdapter.STATE_ON:
@@ -219,6 +252,34 @@ public class MainActivity extends Activity implements View.OnClickListener{
                 Log.d(TAG, "onReceive: " + device.getName() + ": " + device.getAddress());
                 mDeviceListAdapter = new BluetoothDeviceArrayAdapter(context, R.layout.bluetooth_device_adapter_view, dispositivosEncontrados);
                 lvDispositivosEncontrados.setAdapter(mDeviceListAdapter);
+
+            }
+        }
+    };
+
+    /**
+     * Broadcast Receiver that detects bond state changes (Pairing status changes)
+     */
+    private final BroadcastReceiver mBroadcastReceiver4 = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final String action = intent.getAction();
+
+            if(action.equals(BluetoothDevice.ACTION_BOND_STATE_CHANGED)){
+                BluetoothDevice mDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                //3 cases:
+                //case1: bonded already
+                if (mDevice.getBondState() == BluetoothDevice.BOND_BONDED){
+                    Log.d(TAG, "BroadcastReceiver: BOND_BONDED.");
+                }
+                //case2: creating a bone
+                if (mDevice.getBondState() == BluetoothDevice.BOND_BONDING) {
+                    Log.d(TAG, "BroadcastReceiver: BOND_BONDING.");
+                }
+                //case3: breaking a bond
+                if (mDevice.getBondState() == BluetoothDevice.BOND_NONE) {
+                    Log.d(TAG, "BroadcastReceiver: BOND_NONE.");
+                }
             }
         }
     };
@@ -296,11 +357,12 @@ public class MainActivity extends Activity implements View.OnClickListener{
                 if (!mBlueAdapter.isDiscovering()) {
                     showToast("Haciendo que tu dispositivo sea reconocible por otros");
                     Log.d(TAG, "BotonDiscoverable: Haciendo que tu dispositivo sea reconocible por otros durante 2 minutos ");
+
                     Intent intent = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
                     /* El tiempo que es visible son 2 minutos, para cambiar ese tiempo a 5 min:
                      * intent.putExtra(BluetootAdapter.EXTRA_DISCOVERABLE_DURATION, 300)
                      * */
-                    startActivityForResult(intent, REQUEST_DISCOVER_BT);
+                    startActivity(intent);
                     mBLueIv.setImageResource(R.drawable.ic_action_on);
 
                     IntentFilter intentFilter = new IntentFilter(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED);
@@ -312,7 +374,7 @@ public class MainActivity extends Activity implements View.OnClickListener{
             case R.id.detectaBtn: {
                 Log.d(TAG, "btnDiscover: Looking for unpaired devices.");
 
-                if(mBlueAdapter.isDiscovering()){
+                if (mBlueAdapter.isDiscovering()) {
                     mBlueAdapter.cancelDiscovery();
                     Log.d(TAG, "btnDiscover: Canceling discovery.");
 
@@ -323,7 +385,7 @@ public class MainActivity extends Activity implements View.OnClickListener{
                     IntentFilter discoverDevicesIntent = new IntentFilter(BluetoothDevice.ACTION_FOUND);
                     registerReceiver(mBroadcastReceiver3, discoverDevicesIntent);
                 }
-                if(!mBlueAdapter.isDiscovering()){
+                if (!mBlueAdapter.isDiscovering()) {
 
                     //check BT permissions in manifest
                     checkBTPermissions();
@@ -338,6 +400,11 @@ public class MainActivity extends Activity implements View.OnClickListener{
 
         }
     }
+
+
+
+
+
 
     public void muestraCompatibilidad() {
             if (mBlueAdapter == null) {
